@@ -1,0 +1,19 @@
+venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+
+# source materials on local
+uploads/
+
+# local db
+*.db
+
+# chromadb
+chroma_db/
