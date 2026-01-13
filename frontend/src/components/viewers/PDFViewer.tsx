@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Loader2, Maximize2, X } from "lucide-react";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { Highlight, TextSelection } from "@/types/highlight";
@@ -31,6 +31,7 @@ export default function PDFViewer({ content, highlights, onTextSelect }: PDFView
   const [highlightRects, setHighlightRects] = useState<
     Array<{ id: string; rects: DOMRect[]; color: string }>
   >([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -170,6 +171,40 @@ export default function PDFViewer({ content, highlights, onTextSelect }: PDFView
   const goToNextPage = () => setPageNumber((prev) => Math.min(prev + 1, numPages || 1));
   const zoomIn = () => setScale((prev) => Math.min(prev + 0.25, 1.5));
   const zoomOut = () => setScale((prev) => Math.max(prev - 0.25, 0.5));
+  const toggleFullscreen = () => setIsFullscreen((prev) => !prev);
+
+  // Handle keyboard navigation in fullscreen
+  useEffect(() => {
+    if (!isFullscreen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case "Escape":
+          setIsFullscreen(false);
+          break;
+        case "ArrowLeft":
+          setPageNumber((prev) => Math.max(prev - 1, 1));
+          break;
+        case "ArrowRight":
+          setPageNumber((prev) => Math.min(prev + 1, numPages || 1));
+          break;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreen, numPages]);
+
+  // Prevent body scroll when fullscreen
+  useEffect(() => {
+    if (isFullscreen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isFullscreen]);
 
   if (!pdfUrl) {
     return (
@@ -180,48 +215,81 @@ export default function PDFViewer({ content, highlights, onTextSelect }: PDFView
   }
 
   return (
-    <div className="h-full flex flex-col bg-gray-100 dark:bg-[#141413]">
-      {/* Controls */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-[#1c1c1b] border-b border-gray-200 dark:border-[#2a2a29]">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={goToPrevPage}
-            disabled={pageNumber <= 1}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#242423] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          </button>
-          <span className="text-sm text-gray-600 dark:text-gray-400 min-w-[100px] text-center">
-            Page {pageNumber} of {numPages || "..."}
-          </span>
-          <button
-            onClick={goToNextPage}
-            disabled={pageNumber >= (numPages || 1)}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#242423] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          </button>
+    <>
+      {/* Fullscreen overlay backdrop */}
+      {isFullscreen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300"
+          onClick={toggleFullscreen}
+        />
+      )}
+
+      <div
+        className={`
+          flex flex-col bg-gray-100 dark:bg-[#141413] transition-all duration-300 ease-in-out
+          ${isFullscreen
+            ? "fixed inset-4 z-50 rounded-xl shadow-2xl"
+            : "h-full"
+          }
+        `}
+      >
+        {/* Controls */}
+        <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-[#1c1c1b] border-b border-gray-200 dark:border-[#2a2a29] rounded-t-xl">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goToPrevPage}
+              disabled={pageNumber <= 1}
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#242423] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            </button>
+            <span className="text-sm text-gray-600 dark:text-gray-400 min-w-[100px] text-center">
+              Page {pageNumber} of {numPages || "..."}
+            </span>
+            <button
+              onClick={goToNextPage}
+              disabled={pageNumber >= (numPages || 1)}
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#242423] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={zoomOut}
+              disabled={scale <= 0.5}
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#242423] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <ZoomOut className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            </button>
+            <span className="text-sm text-gray-600 dark:text-gray-400 min-w-[60px] text-center">
+              {Math.round(scale * 100)}%
+            </span>
+            <button
+              onClick={zoomIn}
+              disabled={scale >= 1.5}
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#242423] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <ZoomIn className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            </button>
+
+            {/* Divider */}
+            <div className="w-px h-6 bg-gray-200 dark:bg-[#2a2a29] mx-1" />
+
+            {/* Fullscreen toggle */}
+            <button
+              onClick={toggleFullscreen}
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#242423] transition-colors"
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            >
+              {isFullscreen ? (
+                <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              ) : (
+                <Maximize2 className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              )}
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={zoomOut}
-            disabled={scale <= 0.5}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#242423] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <ZoomOut className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          </button>
-          <span className="text-sm text-gray-600 dark:text-gray-400 min-w-[60px] text-center">
-            {Math.round(scale * 100)}%
-          </span>
-          <button
-            onClick={zoomIn}
-            disabled={scale >= 1.5}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#242423] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <ZoomIn className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          </button>
-        </div>
-      </div>
 
       {/* PDF Document */}
       <div className="flex-1 overflow-auto flex justify-center p-4" onMouseUp={handleMouseUp}>
@@ -283,5 +351,6 @@ export default function PDFViewer({ content, highlights, onTextSelect }: PDFView
         </Document>
       </div>
     </div>
+    </>
   );
 }
