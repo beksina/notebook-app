@@ -160,22 +160,20 @@ export default function NotebookPage() {
           <div className="flex gap-1 mb-4 bg-gray-100 dark:bg-[#242423] p-1 rounded-lg w-fit">
             <button
               onClick={() => setActiveView("chat")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeView === "chat"
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeView === "chat"
                   ? "bg-white dark:bg-[#1c1c1b] text-gray-900 dark:text-white shadow-sm"
                   : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-              }`}
+                }`}
             >
               <MessageSquare className="w-4 h-4" />
               Chat
             </button>
             <button
               onClick={() => setActiveView("decks")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeView === "decks"
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeView === "decks"
                   ? "bg-white dark:bg-[#1c1c1b] text-gray-900 dark:text-white shadow-sm"
                   : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-              }`}
+                }`}
             >
               <Layers className="w-4 h-4" />
               Decks
@@ -183,26 +181,28 @@ export default function NotebookPage() {
 
             {/* Material tab - only shown when a material is open */}
             {openMaterial && (
-              <div className="flex items-center">
+              <div
+                className={`flex items-center rounded-md transition-colors ${activeView === "material"
+                    ? "bg-white dark:bg-[#1c1c1b] shadow-sm"
+                    : ""
+                  }`}
+              >
                 <button
                   onClick={() => setActiveView("material")}
-                  className={`flex items-center gap-2 pl-4 pr-2 py-2 rounded-l-md text-sm font-medium transition-colors ${
-                    activeView === "material"
-                      ? "bg-white dark:bg-[#1c1c1b] text-gray-900 dark:text-white shadow-sm"
+                  className={`flex items-center gap-2 pl-4 pr-1 py-2 rounded-l-md text-sm font-medium transition-colors ${activeView === "material"
+                      ? "text-gray-900 dark:text-white"
                       : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-                  }`}
+                    }`}
                 >
                   <FileText className="w-4 h-4" />
                   <span className="max-w-[120px] truncate">{openMaterial.title}</span>
                 </button>
                 <button
                   onClick={handleCloseMaterial}
-                  // className={`p-2 rounded-r-md transition-colors ${
-                  //   activeView === "material"
-                  //     ? "bg-white dark:bg-[#1c1c1b] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 shadow-sm"
-                  //     : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  // }`}
-                  className={'p-2 rounded-r-md transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}
+                  className={`p-2 pr-2.5 rounded-r-md transition-colors ${activeView === "material"
+                      ? "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                      : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    }`}
                   title="Close material"
                 >
                   <X className="w-3.5 h-3.5" />
