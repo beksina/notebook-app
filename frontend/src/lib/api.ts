@@ -69,6 +69,30 @@ class ApiClient {
     return this.fetch<T>(endpoint, { ...options, method: "DELETE" });
   }
 
+  async fetchBlob(endpoint: string): Promise<Blob> {
+    const headers: HeadersInit = {};
+    if (this.token) {
+      headers["Authorization"] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      headers,
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Request failed" }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+
+    return response.blob();
+  }
+
+  async fetchText(endpoint: string): Promise<string> {
+    const blob = await this.fetchBlob(endpoint);
+    return blob.text();
+  }
+
   async uploadFile<T>(endpoint: string, file: File, title?: string): Promise<T> {
     const formData = new FormData();
     formData.append("file", file);
@@ -191,7 +215,7 @@ class ApiClient {
 }
 
 // SSE Types
-export type SSEEventType = "status" | "content" | "sources" | "error" | "done";
+export type SSEEventType = "status" | "content" | "sources" | "error" | "done" | "card";
 
 export interface SSEEvent {
   event: SSEEventType;

@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import { Send } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { SSEEvent } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Message {
   id: string;
@@ -138,7 +140,37 @@ export default function ChatInterface({ notebookId }: ChatInterfaceProps) {
                   : "bg-gray-100 dark:bg-[#242423] text-gray-900 dark:text-white"
               }`}
             >
-              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              <div className="text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    h1: ({ children }) => <h1 className="text-xl font-bold my-2">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-lg font-bold my-2">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-base font-semibold my-2">{children}</h3>,
+                    p: ({ children }) => <p className="my-2">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc list-inside my-2 space-y-1">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal list-inside my-2 space-y-1">{children}</ol>,
+                    li: ({ children }) => <li>{children}</li>,
+                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                    em: ({ children }) => <em className="italic">{children}</em>,
+                    pre: ({ children }) => (
+                      <pre className="bg-gray-200 dark:bg-[#1c1c1b] p-3 rounded-lg overflow-x-auto my-2 text-xs">
+                        {children}
+                      </pre>
+                    ),
+                    code: ({ children, className }) => {
+                      const isCodeBlock = className?.includes("language-");
+                      return isCodeBlock ? (
+                        <code className={className}>{children}</code>
+                      ) : (
+                        <code className="bg-gray-200 dark:bg-[#1c1c1b] px-1.5 py-0.5 rounded text-xs">{children}</code>
+                      );
+                    },
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
+              </div>
             </div>
           </div>
         ))}
@@ -164,7 +196,37 @@ export default function ChatInterface({ notebookId }: ChatInterfaceProps) {
             {streamingContent && (
               <div className="flex justify-start">
                 <div className="max-w-[80%] rounded-2xl px-4 py-2 bg-gray-100 dark:bg-[#242423] text-gray-900 dark:text-white">
-                  <p className="text-sm whitespace-pre-wrap">{streamingContent}</p>
+                  <div className="text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        h1: ({ children }) => <h1 className="text-xl font-bold my-2">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-lg font-bold my-2">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-base font-semibold my-2">{children}</h3>,
+                        p: ({ children }) => <p className="my-2">{children}</p>,
+                        ul: ({ children }) => <ul className="list-disc list-inside my-2 space-y-1">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal list-inside my-2 space-y-1">{children}</ol>,
+                        li: ({ children }) => <li>{children}</li>,
+                        strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                        em: ({ children }) => <em className="italic">{children}</em>,
+                        pre: ({ children }) => (
+                          <pre className="bg-gray-200 dark:bg-[#1c1c1b] p-3 rounded-lg overflow-x-auto my-2 text-xs">
+                            {children}
+                          </pre>
+                        ),
+                        code: ({ children, className }) => {
+                          const isCodeBlock = className?.includes("language-");
+                          return isCodeBlock ? (
+                            <code className={className}>{children}</code>
+                          ) : (
+                            <code className="bg-gray-200 dark:bg-[#1c1c1b] px-1.5 py-0.5 rounded text-xs">{children}</code>
+                          );
+                        },
+                      }}
+                    >
+                      {streamingContent}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               </div>
             )}

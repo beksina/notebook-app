@@ -20,6 +20,7 @@ class FlashcardDeckResponse(FlashcardDeckBase):
     id: str
     notebook_id: str
     created_at: datetime
+    card_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -30,6 +31,7 @@ class FlashcardBase(BaseModel):
     difficulty: Difficulty = Difficulty.MEDIUM
     card_type: CardType = CardType.BASIC
     knowledge_node_id: Optional[str] = None
+    source_material_id: Optional[str] = None
 
 
 class FlashcardCreate(FlashcardBase):
@@ -42,6 +44,7 @@ class FlashcardUpdate(BaseModel):
     difficulty: Optional[Difficulty] = None
     card_type: Optional[CardType] = None
     knowledge_node_id: Optional[str] = None
+    source_material_id: Optional[str] = None
     next_review_at: Optional[datetime] = None
     interval_days: Optional[int] = None
     ease_factor: Optional[float] = None
@@ -54,6 +57,7 @@ class FlashcardResponse(FlashcardBase):
     next_review_at: Optional[datetime]
     interval_days: int
     ease_factor: float
+    source_material_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -74,3 +78,15 @@ class CardReviewResponse(CardReviewBase):
     reviewed_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# Card generation schemas
+class GenerateCardsRequest(BaseModel):
+    source_material_ids: Optional[list[str]] = None  # None means all materials
+    max_cards: int = 10
+
+
+class GeneratedCard(BaseModel):
+    question: str
+    answer: str
+    source_material_id: Optional[str] = None

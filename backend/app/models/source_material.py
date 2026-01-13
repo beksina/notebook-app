@@ -25,9 +25,10 @@ class SourceMaterial(Base):
     content_url = Column(Text, nullable=True)
     uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     processed = Column(Boolean, default=False)
-    metadata_ = Column("metadata", JSON, nullable=True)  # renamed to avoid shadowing
-    # metadata = Column(JSON, nullable=True)
+    metadata_ = Column("metadata", JSON, nullable=True)  # renamed from "metadata" to avoid shadowing
 
     # Relationships
     notebook = relationship("Notebook", back_populates="source_materials")
     knowledge_nodes = relationship("KnowledgeNode", back_populates="source_material")
+    flashcards = relationship("Flashcard", back_populates="source_material")
+    highlights = relationship("Highlight", back_populates="source_material", cascade="all, delete-orphan")

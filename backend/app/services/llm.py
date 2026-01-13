@@ -1,7 +1,9 @@
 """LLM service for chat completions using Anthropic Claude."""
 
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List, Dict, Any
 import anthropic
+import json
+import re
 
 from app.core.config import settings
 
@@ -91,6 +93,96 @@ INSTRUCTIONS:
         ) as stream:
             async for text in stream.text_stream:
                 yield text
+
+    async def generate_flashcards(
+        self,
+        chunks: List[Dict[str, Any]],
+        max_cards: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate flashcards from document chunks.
+
+        Args:
+            chunks: List of dicts with 'text', 'source_material_id', 'source_title'
+            max_cards: Maximum number of cards to generate
+
+        Returns:
+            List of dicts with 'question', 'answer', 'source_material_id'
+        """
+        # Format chunks for the prompt
+        chunks_text = ""
+        for i, chunk in enumerate(chunks[:20]):  # Limit to 20 chunks for context
+            chunks_text += f"\n[Chunk {i+1} from '{chunk.get('source_title', 'Unknown')}']\n{chunk['text']}\n"
+
+        system_prompt = """You are an expert at creating educational flashcards for spaced repetition learning.
+
+Your task is to create high-quality flashcards from the provided document excerpts.
+
+Rules for creating flashcards:
+1. Each card should test ONE specific concept, fact, or idea
+2. Questions should be clear and unambiguous
+3. Answers should be concise but complete
+4. Focus on the most important, memorable information
+5. Avoid trivial or obvious questions
+6. Use active recall principles - questions should require thinking, not just recognition
+7. Include a mix of:
+   - Definition cards (What is X?)
+   - Concept cards (Explain how X works)
+   - Application cards (When would you use X?)
+   - Comparison cards (What's the difference between X and Y?)
+
+Return your response as a JSON array of objects with this exact format:
+[
+  {"question": "...", "answer": "...", "chunk_index": N},
+  ...
+]
+
+Where chunk_index is the 1-based index of the chunk the card was derived from.
+Only return the JSON array, no other text."""
+
+        user_prompt = f"""Create {max_cards} flashcards from these document excerpts:
+
+{chunks_text}
+
+Remember to return ONLY a valid JSON array."""
+
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=4000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+
+        # Parse the JSON response
+        response_text = response.content[0].text.strip()
+
+        # Try to extract JSON from the response
+        try:
+            # First try direct parse
+            cards_data = json.loads(response_text)
+        except json.JSONDecodeError:
+            # Try to find JSON array in response
+            json_match = re.search(r'\[[\s\S]*\]', response_text)
+            if json_match:
+                cards_data = json.loads(json_match.group())
+            else:
+                return []
+
+        # Map chunk_index back to source_material_id
+        result = []
+        for card in cards_data:
+            chunk_idx = card.get("chunk_index", 1) - 1  # Convert to 0-based
+            source_material_id = None
+            if 0 <= chunk_idx < len(chunks):
+                source_material_id = chunks[chunk_idx].get("source_material_id")
+
+            result.append({
+                "question": card.get("question", ""),
+                "answer": card.get("answer", ""),
+                "source_material_id": source_material_id
+            })
+
+        return result[:max_cards]
 
 
 llm_service = LLMService()

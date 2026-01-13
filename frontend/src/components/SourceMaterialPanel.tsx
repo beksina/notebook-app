@@ -12,7 +12,18 @@ interface SourceFile {
   processed?: boolean;
 }
 
-export default function SourceMaterialPanel({ notebookId } : { notebookId: string }) {
+interface OpenMaterial {
+  id: string;
+  title: string;
+  type: string;
+}
+
+interface SourceMaterialPanelProps {
+  notebookId: string;
+  onMaterialClick?: (material: OpenMaterial) => void;
+}
+
+export default function SourceMaterialPanel({ notebookId, onMaterialClick }: SourceMaterialPanelProps) {
   const { api, isAuthenticated } = useApi();
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -186,15 +197,19 @@ export default function SourceMaterialPanel({ notebookId } : { notebookId: strin
             {files.map((file) => (
               <div
                 key={file.id}
-                className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-[#242423] group"
+                onClick={() => onMaterialClick?.({ id: file.id, title: file.name, type: file.type })}
+                className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-[#242423] group cursor-pointer hover:bg-gray-100 dark:hover:bg-[#333332] transition-colors"
               >
                 <FileText className="w-4 h-4 text-amber-500 flex-shrink-0" />
                 <span className="text-sm text-gray-700 dark:text-gray-300 truncate flex-1">
                   {file.name}
                 </span>
                 <button
-                  onClick={() => removeFile(file.id)}
-                  className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-[#333332] rounded transition-all"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeFile(file.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-[#444443] rounded transition-all"
                 >
                   <X className="w-3 h-3 text-gray-500" />
                 </button>

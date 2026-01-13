@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any
 from pathlib import Path
 import logging
 import json
+import mimetypes
 
 from sse_starlette.sse import EventSourceResponse
 
@@ -26,6 +28,16 @@ from app.services.indexing import indexing_service
 from app.services.vector_store import get_vector_store
 from app.services.llm import llm_service
 from app.schemas.chat_message import ChatRequest, SSEEventType
+from app.schemas.flashcard import (
+    FlashcardDeckCreate, FlashcardDeckUpdate, FlashcardDeckResponse,
+    FlashcardCreate, FlashcardUpdate, FlashcardResponse,
+    GenerateCardsRequest, GeneratedCard,
+    CardReviewCreate, CardReviewResponse
+)
+from app.models.flashcard import FlashcardDeck, Flashcard, CardReview
+from app.models.highlight import Highlight
+from app.schemas.highlight import HighlightCreate, HighlightUpdate, HighlightResponse
+from datetime import timedelta
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -44,17 +56,6 @@ def create_notebook(
     db.commit()
     db.refresh(db_notebook)
     return db_notebook
-
-
-    # user = db.query(User).filter(User.id == user_id).first()
-    # if not user:
-    #     raise HTTPException(status_code=404, detail="User not found")
-
-    # db_notebook = Notebook(**notebook.model_dump(), user_id=user_id)
-    # db.add(db_notebook)
-    # db.commit()
-    # db.refresh(db_notebook)
-    # return db_notebook
 
 
 @router.get("/", response_model=List[NotebookResponse])
@@ -127,27 +128,27 @@ def delete_notebook(
     db.commit()
 
 
-# Source Material endpoints (nested under notebooks)
-@router.post("/{notebook_id}/materials", response_model=SourceMaterialResponse, status_code=201)
-def create_source_material(
-    notebook_id: str, 
-    material: SourceMaterialCreate, 
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    notebook = db.query(Notebook).filter(
-        Notebook.id == notebook_id,
-        Notebook.user_id == current_user.id
-    ).first()
+# # Source Material endpoints (nested under notebooks)
+# @router.post("/{notebook_id}/materials", response_model=SourceMaterialResponse, status_code=201)
+# def create_source_material(
+#     notebook_id: str, 
+#     material: SourceMaterialCreate, 
+#     current_user: User = Depends(get_current_user),
+#     db: Session = Depends(get_db)
+# ):
+#     notebook = db.query(Notebook).filter(
+#         Notebook.id == notebook_id,
+#         Notebook.user_id == current_user.id
+#     ).first()
 
-    if not notebook:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+#     if not notebook:
+#         raise HTTPException(status_code=404, detail="Notebook not found")
 
-    db_material = SourceMaterial(**material.model_dump(), notebook_id=notebook_id)
-    db.add(db_material)
-    db.commit()
-    db.refresh(db_material)
-    return db_material
+#     db_material = SourceMaterial(**material.model_dump(), notebook_id=notebook_id)
+#     db.add(db_material)
+#     db.commit()
+#     db.refresh(db_material)
+#     return db_material
 
 
 @router.get("/{notebook_id}/materials", response_model=List[SourceMaterialResponse])
@@ -230,6 +231,188 @@ async def delete_source_material(
         await storage.delete(material.content_url)
 
     db.delete(material)
+    db.commit()
+
+
+@router.get("/{notebook_id}/materials/{material_id}/content")
+async def get_material_content(
+    notebook_id: str,
+    material_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Serve the raw file content for a source material.
+    Returns the file with appropriate content-type header.
+    """
+    # Verify notebook ownership
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    # Get material
+    material = db.query(SourceMaterial).filter(
+        SourceMaterial.id == material_id,
+        SourceMaterial.notebook_id == notebook_id
+    ).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Source material not found")
+
+    if not material.content_url:
+        raise HTTPException(status_code=404, detail="Material has no file content")
+
+    # Get file content from storage
+    try:
+        content = await storage.get(material.content_url)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found in storage")
+
+    # Determine content type from file extension
+    content_type, _ = mimetypes.guess_type(material.content_url)
+    if not content_type:
+        content_type = "application/octet-stream"
+
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{material.title}"'
+        }
+    )
+
+
+# ==================== Highlight endpoints ====================
+
+@router.post("/{notebook_id}/materials/{material_id}/highlights",
+             response_model=HighlightResponse, status_code=201)
+def create_highlight(
+    notebook_id: str,
+    material_id: str,
+    highlight: HighlightCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new highlight on a source material."""
+    # Verify notebook ownership
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    # Verify material belongs to notebook
+    material = db.query(SourceMaterial).filter(
+        SourceMaterial.id == material_id,
+        SourceMaterial.notebook_id == notebook_id
+    ).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Source material not found")
+
+    db_highlight = Highlight(
+        **highlight.model_dump(),
+        source_material_id=material_id
+    )
+    db.add(db_highlight)
+    db.commit()
+    db.refresh(db_highlight)
+    return db_highlight
+
+
+@router.get("/{notebook_id}/materials/{material_id}/highlights",
+            response_model=List[HighlightResponse])
+def list_highlights(
+    notebook_id: str,
+    material_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all highlights for a source material."""
+    # Verify access
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    material = db.query(SourceMaterial).filter(
+        SourceMaterial.id == material_id,
+        SourceMaterial.notebook_id == notebook_id
+    ).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Source material not found")
+
+    return db.query(Highlight).filter(
+        Highlight.source_material_id == material_id
+    ).order_by(Highlight.created_at).all()
+
+
+@router.patch("/{notebook_id}/materials/{material_id}/highlights/{highlight_id}",
+              response_model=HighlightResponse)
+def update_highlight(
+    notebook_id: str,
+    material_id: str,
+    highlight_id: str,
+    highlight_update: HighlightUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update a highlight (color or note)."""
+    # Verify access chain
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    highlight = db.query(Highlight).join(SourceMaterial).filter(
+        Highlight.id == highlight_id,
+        Highlight.source_material_id == material_id,
+        SourceMaterial.notebook_id == notebook_id
+    ).first()
+    if not highlight:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+
+    update_data = highlight_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(highlight, field, value)
+
+    db.commit()
+    db.refresh(highlight)
+    return highlight
+
+
+@router.delete("/{notebook_id}/materials/{material_id}/highlights/{highlight_id}",
+               status_code=204)
+def delete_highlight(
+    notebook_id: str,
+    material_id: str,
+    highlight_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a highlight."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    highlight = db.query(Highlight).join(SourceMaterial).filter(
+        Highlight.id == highlight_id,
+        Highlight.source_material_id == material_id,
+        SourceMaterial.notebook_id == notebook_id
+    ).first()
+    if not highlight:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+
+    db.delete(highlight)
     db.commit()
 
 
@@ -498,3 +681,516 @@ def _format_context_for_llm(results: List[dict[str, Any]]) -> str:
         )
 
     return "\n\n---\n\n".join(context_parts)
+
+
+# ==================== Deck endpoints ====================
+
+@router.get("/{notebook_id}/decks", response_model=List[FlashcardDeckResponse])
+def list_decks(
+    notebook_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all decks in a notebook."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    decks = db.query(FlashcardDeck).filter(FlashcardDeck.notebook_id == notebook_id).all()
+
+    # Add card count to each deck
+    result = []
+    for deck in decks:
+        card_count = db.query(Flashcard).filter(Flashcard.deck_id == deck.id).count()
+        deck_dict = {
+            "id": deck.id,
+            "notebook_id": deck.notebook_id,
+            "title": deck.title,
+            "created_at": deck.created_at,
+            "card_count": card_count
+        }
+        result.append(FlashcardDeckResponse(**deck_dict))
+
+    return result
+
+
+@router.post("/{notebook_id}/decks", response_model=FlashcardDeckResponse, status_code=201)
+def create_deck(
+    notebook_id: str,
+    deck: FlashcardDeckCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new deck in a notebook."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    db_deck = FlashcardDeck(**deck.model_dump(), notebook_id=notebook_id)
+    db.add(db_deck)
+    db.commit()
+    db.refresh(db_deck)
+
+    return FlashcardDeckResponse(
+        id=db_deck.id,
+        notebook_id=db_deck.notebook_id,
+        title=db_deck.title,
+        created_at=db_deck.created_at,
+        card_count=0
+    )
+
+
+@router.get("/{notebook_id}/decks/{deck_id}", response_model=FlashcardDeckResponse)
+def get_deck(
+    notebook_id: str,
+    deck_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a specific deck."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    deck = db.query(FlashcardDeck).filter(
+        FlashcardDeck.id == deck_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found")
+
+    card_count = db.query(Flashcard).filter(Flashcard.deck_id == deck.id).count()
+
+    return FlashcardDeckResponse(
+        id=deck.id,
+        notebook_id=deck.notebook_id,
+        title=deck.title,
+        created_at=deck.created_at,
+        card_count=card_count
+    )
+
+
+@router.patch("/{notebook_id}/decks/{deck_id}", response_model=FlashcardDeckResponse)
+def update_deck(
+    notebook_id: str,
+    deck_id: str,
+    deck_update: FlashcardDeckUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update a deck."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    deck = db.query(FlashcardDeck).filter(
+        FlashcardDeck.id == deck_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found")
+
+    update_data = deck_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(deck, field, value)
+
+    db.commit()
+    db.refresh(deck)
+
+    card_count = db.query(Flashcard).filter(Flashcard.deck_id == deck.id).count()
+
+    return FlashcardDeckResponse(
+        id=deck.id,
+        notebook_id=deck.notebook_id,
+        title=deck.title,
+        created_at=deck.created_at,
+        card_count=card_count
+    )
+
+
+@router.delete("/{notebook_id}/decks/{deck_id}", status_code=204)
+def delete_deck(
+    notebook_id: str,
+    deck_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a deck and all its cards."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    deck = db.query(FlashcardDeck).filter(
+        FlashcardDeck.id == deck_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found")
+
+    db.delete(deck)
+    db.commit()
+
+
+# ==================== Card endpoints ====================
+
+@router.get("/{notebook_id}/decks/{deck_id}/cards", response_model=List[FlashcardResponse])
+def list_cards(
+    notebook_id: str,
+    deck_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all cards in a deck."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    deck = db.query(FlashcardDeck).filter(
+        FlashcardDeck.id == deck_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found")
+
+    return db.query(Flashcard).filter(Flashcard.deck_id == deck_id).all()
+
+
+@router.post("/{notebook_id}/decks/{deck_id}/cards", response_model=FlashcardResponse, status_code=201)
+def create_card(
+    notebook_id: str,
+    deck_id: str,
+    card: FlashcardCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new card in a deck."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    deck = db.query(FlashcardDeck).filter(
+        FlashcardDeck.id == deck_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found")
+
+    db_card = Flashcard(**card.model_dump(), deck_id=deck_id)
+    db.add(db_card)
+    db.commit()
+    db.refresh(db_card)
+    return db_card
+
+
+@router.patch("/{notebook_id}/cards/{card_id}", response_model=FlashcardResponse)
+def update_card(
+    notebook_id: str,
+    card_id: str,
+    card_update: FlashcardUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update a card."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    card = db.query(Flashcard).join(FlashcardDeck).filter(
+        Flashcard.id == card_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+
+    update_data = card_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(card, field, value)
+
+    db.commit()
+    db.refresh(card)
+    return card
+
+
+@router.delete("/{notebook_id}/cards/{card_id}", status_code=204)
+def delete_card(
+    notebook_id: str,
+    card_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a card."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    card = db.query(Flashcard).join(FlashcardDeck).filter(
+        Flashcard.id == card_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+
+    db.delete(card)
+    db.commit()
+
+
+# ==================== Card generation endpoint ====================
+
+@router.post("/{notebook_id}/decks/{deck_id}/generate")
+async def generate_cards(
+    notebook_id: str,
+    deck_id: str,
+    request: GenerateCardsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate flashcards from notebook documents using LLM.
+    Streams SSE events with generated cards.
+    """
+    # Verify notebook ownership
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    # Verify deck exists
+    deck = db.query(FlashcardDeck).filter(
+        FlashcardDeck.id == deck_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found")
+
+    # Get source materials to generate from
+    materials_query = db.query(SourceMaterial).filter(
+        SourceMaterial.notebook_id == notebook_id,
+        SourceMaterial.processed == True
+    )
+    if request.source_material_ids:
+        materials_query = materials_query.filter(
+            SourceMaterial.id.in_(request.source_material_ids)
+        )
+    materials = materials_query.all()
+
+    if not materials:
+        raise HTTPException(
+            status_code=400,
+            detail="No processed documents found to generate cards from"
+        )
+
+    async def event_generator():
+        vs = get_vector_store()
+
+        try:
+            yield {
+                "event": SSEEventType.STATUS.value,
+                "data": json.dumps({"message": "Retrieving document content..."})
+            }
+
+            # Get chunks from vector store for each material
+            all_chunks = []
+            for material in materials:
+                # Get all chunks for this material without embedding search
+                results = vs.get_documents(
+                    source_material_id=material.id,
+                    limit=50  # Get up to 50 chunks per material
+                )
+                for r in results:
+                    all_chunks.append({
+                        "text": r["text"],
+                        "source_material_id": material.id,
+                        "source_title": material.title
+                    })
+
+            if not all_chunks:
+                yield {
+                    "event": SSEEventType.ERROR.value,
+                    "data": json.dumps({"message": "No content found in documents"})
+                }
+                return
+
+            yield {
+                "event": SSEEventType.STATUS.value,
+                "data": json.dumps({"message": f"Generating cards from {len(all_chunks)} text chunks..."})
+            }
+
+            # Generate cards using LLM
+            cards = await llm_service.generate_flashcards(
+                chunks=all_chunks,
+                max_cards=request.max_cards
+            )
+
+            # Save cards to database and stream them
+            db_session = SessionLocal()
+            try:
+                for card_data in cards:
+                    db_card = Flashcard(
+                        deck_id=deck_id,
+                        question=card_data["question"],
+                        answer=card_data["answer"],
+                        source_material_id=card_data.get("source_material_id")
+                    )
+                    db_session.add(db_card)
+                    db_session.commit()
+                    db_session.refresh(db_card)
+
+                    yield {
+                        "event": "card",
+                        "data": json.dumps({
+                            "id": db_card.id,
+                            "question": db_card.question,
+                            "answer": db_card.answer,
+                            "source_material_id": db_card.source_material_id
+                        })
+                    }
+            finally:
+                db_session.close()
+
+            yield {
+                "event": SSEEventType.DONE.value,
+                "data": json.dumps({"message": f"Generated {len(cards)} cards"})
+            }
+
+        except Exception as e:
+            logger.exception(f"Card generation error: {e}")
+            yield {
+                "event": SSEEventType.ERROR.value,
+                "data": json.dumps({"message": str(e)})
+            }
+
+    return EventSourceResponse(event_generator())
+
+
+# ==================== Card review endpoint ====================
+
+@router.post("/{notebook_id}/cards/{card_id}/review", response_model=CardReviewResponse, status_code=201)
+def review_card(
+    notebook_id: str,
+    card_id: str,
+    review: CardReviewCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Record a card review and update spaced repetition parameters.
+
+    Quality ratings (SM-2 scale):
+    - 1: Complete blackout, wrong response
+    - 2: Wrong response, but upon seeing answer, remembered
+    - 3: Correct response with serious difficulty
+    - 4: Correct response after hesitation
+    - 5: Perfect response, instant recall
+
+    For simplicity, frontend can use:
+    - "Forgot" = quality 1-2
+    - "Hard" = quality 3
+    - "Good" = quality 4
+    - "Easy" = quality 5
+    """
+    # Verify notebook ownership
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    # Get card and verify it belongs to this notebook
+    card = db.query(Flashcard).join(FlashcardDeck).filter(
+        Flashcard.id == card_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+
+    # Create review record
+    from datetime import datetime, timezone
+    db_review = CardReview(
+        flashcard_id=card_id,
+        user_id=current_user.id,
+        quality=review.quality,
+        time_taken_seconds=review.time_taken_seconds
+    )
+    db.add(db_review)
+
+    # Update card SRS parameters using SM-2 algorithm
+    quality = review.quality
+
+    if quality < 3:
+        # Failed recall - reset to 1 day
+        card.interval_days = 1
+    else:
+        # Successful recall - increase interval
+        if card.interval_days == 1:
+            card.interval_days = 6
+        else:
+            card.interval_days = int(card.interval_days * card.ease_factor)
+
+    # Update ease factor (minimum 1.3)
+    card.ease_factor = max(
+        1.3,
+        card.ease_factor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+    )
+
+    # Set next review date
+    card.next_review_at = datetime.now(timezone.utc) + timedelta(days=card.interval_days)
+
+    db.commit()
+    db.refresh(db_review)
+
+    return db_review
+
+
+@router.get("/{notebook_id}/cards/{card_id}", response_model=FlashcardResponse)
+def get_card(
+    notebook_id: str,
+    card_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a single card with its current spaced repetition state."""
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id,
+        Notebook.user_id == current_user.id
+    ).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    card = db.query(Flashcard).join(FlashcardDeck).filter(
+        Flashcard.id == card_id,
+        FlashcardDeck.notebook_id == notebook_id
+    ).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+
+    return card

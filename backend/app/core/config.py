@@ -24,8 +24,8 @@ class Settings(BaseSettings):
 
     # Anthropic
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
-    # ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
-    ANTHROPIC_MODEL: str = "claude-3-haiku-20240307"
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+    # ANTHROPIC_MODEL: str = "claude-3-haiku-20240307"
 
     # Chunking
     CHUNK_SIZE: int = 1000

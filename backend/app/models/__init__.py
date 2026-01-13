@@ -5,6 +5,7 @@ from app.models.knowledge_node import KnowledgeNode, NodeType, MasteryLevel
 from app.models.flashcard import FlashcardDeck, Flashcard, CardReview, Difficulty, CardType
 from app.models.quiz import Quiz, QuizQuestion, QuizAttempt, QuizType, QuestionType
 from app.models.report import Report, ReportType
+from app.models.highlight import Highlight, HighlightColor
 
 __all__ = [
     "User",
@@ -26,4 +27,6 @@ __all__ = [
     "QuestionType",
     "Report",
     "ReportType",
+    "Highlight",
+    "HighlightColor",
 ]

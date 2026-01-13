@@ -37,3 +37,31 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), sans-serif;
 }
+
+/* Highlight colors */
+.highlight-yellow {
+  background-color: rgba(253, 224, 71, 0.5);
+}
+.highlight-green {
+  background-color: rgba(134, 239, 172, 0.5);
+}
+.highlight-blue {
+  background-color: rgba(147, 197, 253, 0.5);
+}
+.highlight-pink {
+  background-color: rgba(249, 168, 212, 0.5);
+}
+
+/* Dark mode adjustments for highlights */
+.dark .highlight-yellow {
+  background-color: rgba(253, 224, 71, 0.3);
+}
+.dark .highlight-green {
+  background-color: rgba(134, 239, 172, 0.3);
+}
+.dark .highlight-blue {
+  background-color: rgba(147, 197, 253, 0.3);
+}
+.dark .highlight-pink {
+  background-color: rgba(249, 168, 212, 0.3);
+}

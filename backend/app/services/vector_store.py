@@ -77,7 +77,8 @@ class VectorStoreService:
         query_text: str,
         notebook_id: Optional[str] = None,
         user_id: Optional[str] = None,
-        n_results: int = 5
+        n_results: int = 5,
+        filter_metadata: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         Query vector store for similar documents.
@@ -93,6 +94,8 @@ class VectorStoreService:
             where["notebook_id"] = notebook_id
         # if user_id:
         #     where["user_id"] = user_id
+        if filter_metadata:
+            where.update(filter_metadata)
 
         # Query ChromaDB
         results = self.collection.query(
@@ -112,6 +115,39 @@ class VectorStoreService:
                     "metadata": results["metadatas"][0][i],
                     "distance": results["distances"][0][i],
                     "similarity": 1 - results["distances"][0][i]  # Convert distance to similarity
+                })
+
+        return formatted
+
+    def get_documents(
+        self,
+        notebook_id: Optional[str] = None,
+        source_material_id: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get documents from vector store without embedding search.
+        Use for retrieving all chunks for card generation.
+        """
+        where = {}
+        if notebook_id:
+            where["notebook_id"] = notebook_id
+        if source_material_id:
+            where["source_material_id"] = source_material_id
+
+        results = self.collection.get(
+            where=where if where else None,
+            limit=limit,
+            include=["documents", "metadatas"]
+        )
+
+        formatted = []
+        if results["ids"]:
+            for i, id in enumerate(results["ids"]):
+                formatted.append({
+                    "id": id,
+                    "text": results["documents"][i],
+                    "metadata": results["metadatas"][i]
                 })
 
         return formatted

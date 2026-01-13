@@ -38,6 +38,7 @@ class Flashcard(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     deck_id = Column(String, ForeignKey("flashcard_decks.id", ondelete="CASCADE"), nullable=False, index=True)
     knowledge_node_id = Column(String, ForeignKey("knowledge_nodes.id", ondelete="SET NULL"), nullable=True)
+    source_material_id = Column(String, ForeignKey("source_materials.id", ondelete="SET NULL"), nullable=True, index=True)
     question = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
     difficulty = Column(Enum(Difficulty), default=Difficulty.MEDIUM)
@@ -50,6 +51,7 @@ class Flashcard(Base):
     # Relationships
     deck = relationship("FlashcardDeck", back_populates="flashcards")
     knowledge_node = relationship("KnowledgeNode", back_populates="flashcards")
+    source_material = relationship("SourceMaterial", back_populates="flashcards")
     reviews = relationship("CardReview", back_populates="flashcard", cascade="all, delete-orphan")
 
 
